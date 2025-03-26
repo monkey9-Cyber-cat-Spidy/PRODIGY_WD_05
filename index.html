@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Customizable Weather Forecast</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f2f2f2;
+      margin: 0;
+      padding: 20px;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 20px;
+      opacity: 0;
+    }
+    form {
+      text-align: center;
+      margin-bottom: 20px;
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    input[type="text"] {
+      padding: 8px;
+      margin: 5px;
+      width: 300px;
+    }
+    button {
+      padding: 8px 12px;
+      margin: 5px;
+      cursor: pointer;
+    }
+    .weather-data {
+      background: #fff;
+      padding: 20px;
+      max-width: 1200px;
+      margin: 0 auto;
+      border-radius: 5px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+      opacity: 0;
+      transform: scale(0.9);
+    }
+    .section {
+      margin-bottom: 30px;
+    }
+    h2 {
+      margin-top: 0;
+      border-bottom: 2px solid #ddd;
+      padding-bottom: 5px;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-bottom: 15px;
+    }
+    th, td {
+      padding: 8px;
+      border: 1px solid #ddd;
+      text-align: center;
+    }
+    #downloadBtn {
+      display: none;
+      padding: 8px 12px;
+      background-color: #4285f4;
+      color: #fff;
+      text-decoration: none;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Customizable Weather Forecast</h1>
+    <p>Powered by the Open‑Meteo API (free &amp; no login required)</p>
+  </header>
+
+  <form id="location-form">
+    <input type="text" id="locationQuery" placeholder="Enter city, state, or country" required />
+    <button type="submit">Search Weather</button>
+  </form>
+
+  <div class="weather-data" id="weather-data">
+    <p>Enter a location to display the weather.</p>
+  </div>
+
+  <div style="text-align: center; margin-top: 20px;">
+    <a id="downloadBtn" href="#" download="weather_data.json">Download Weather JSON</a>
+  </div>
+
+  <script>
+    gsap.to("header", { opacity: 1, duration: 1 });
+    gsap.to("form", { opacity: 1, y: 0, duration: 1, delay: 0.5 });
+    const weatherContainer = document.getElementById('weather-data');
+    const form = document.getElementById('location-form');
+    const downloadBtn = document.getElementById('downloadBtn');
+    let fullWeatherData = null;
+    async function geocodeLocation(query) {
+      const encodedQuery = encodeURIComponent(query);
+      const geoUrl = `https://nominatim.openstreetmap.org/search?q=${encodedQuery}&format=json&limit=1`;
+      const response = await fetch(geoUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      if (!response.ok) throw new Error('Geocoding request failed');
+      const data = await response.json();
+      if (data.length === 0) throw new Error('Location not found');
+      return { lat: data[0].lat, lon: data[0].lon };
+    }
+    async function fetchWeather(lat, lon) {
+      const apiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&timezone=auto&current_weather=true&hourly=temperature_2m,windspeed_10m,weathercode,winddirection_10m&daily=temperature_2m_max,temperature_2m_min,weathercode`;
+      const response = await fetch(apiUrl);
+      if (!response.ok) throw new Error('Weather API request failed');
+      const data = await response.json();
+      return data;
+    }
+    function renderWeather(data) {
+      if (!data) {
+        weatherContainer.innerHTML = '<p>Error loading weather data.</p>';
+        downloadBtn.style.display = 'none';
+        return;
+      }
+      fullWeatherData = data;
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      downloadBtn.href = URL.createObjectURL(blob);
+      downloadBtn.style.display = 'inline-block';
+      let html = "";
+      html += `<div class="section">
+                <h2>Location Information</h2>
+                <p><strong>Latitude:</strong> ${data.latitude}</p>
+                <p><strong>Longitude:</strong> ${data.longitude}</p>
+                ${data.timezone ? `<p><strong>Timezone:</strong> ${data.timezone}</p>` : ''}
+                ${data.elevation ? `<p><strong>Elevation:</strong> ${data.elevation} m</p>` : ''}
+              </div>`;
+      if (data.current_weather) {
+        html += `<div class="section">
+                  <h2>Current Weather</h2>
+                  <table>
+                    <tr>
+                      <th>Temperature (°C)</th>
+                      <td>${data.current_weather.temperature}</td>
+                    </tr>
+                    <tr>
+                      <th>Wind Speed (km/h)</th>
+                      <td>${data.current_weather.windspeed}</td>
+                    </tr>
+                    <tr>
+                      <th>Weather Code</th>
+                      <td>${data.current_weather.weathercode}</td>
+                    </tr>
+                    <tr>
+                      <th>Wind Direction (°)</th>
+                      <td>${data.current_weather.winddirection}</td>
+                    </tr>
+                  </table>
+                </div>`;
+      }
+      if (data.hourly && data.hourly.time) {
+        html += `<div class="section">
+                  <h2>Hourly Forecast (First 12 entries)</h2>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Time</th>
+                        <th>Temperature (°C)</th>
+                        <th>Wind Speed (m/s)</th>
+                        <th>Wind Direction (°)</th>
+                      </tr>
+                    </thead>
+                    <tbody>`;
+        const count = Math.min(12, data.hourly.time.length);
+        for (let i = 0; i < count; i++) {
+          html += `<tr>
+                    <td>${data.hourly.time[i]}</td>
+                    <td>${data.hourly.temperature_2m[i]}</td>
+                    <td>${data.hourly.windspeed_10m[i]}</td>
+                    <td>${data.hourly.winddirection_10m[i]}</td>
+                  </tr>`;
+        }
+        html += `   </tbody>
+                  </table>
+                </div>`;
+      }
+      if (data.daily && data.daily.time) {
+        html += `<div class="section">
+                  <h2>Daily Forecast</h2>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Max Temp (°C)</th>
+                        <th>Min Temp (°C)</th>
+                        <th>Weather Code</th>
+                      </tr>
+                    </thead>
+                    <tbody>`;
+        const countDaily = data.daily.time.length;
+        for (let i = 0; i < countDaily; i++) {
+          html += `<tr>
+                    <td>${data.daily.time[i]}</td>
+                    <td>${data.daily.temperature_2m_max[i]}</td>
+                    <td>${data.daily.temperature_2m_min[i]}</td>
+                    <td>${data.daily.weathercode[i]}</td>
+                  </tr>`;
+        }
+        html += `   </tbody>
+                  </table>
+                </div>`;
+      }
+      weatherContainer.innerHTML = html;
+      gsap.to(".weather-data", { opacity: 1, scale: 1, duration: 0.5 });
+      gsap.to("#downloadBtn", { opacity: 1, duration: 0.5, delay: 0.2 });
+    }
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      weatherContainer.innerHTML = '<p>Loading weather data...</p>';
+      downloadBtn.style.display = 'none';
+      gsap.to("button", { scale: 0.9, duration: 0.2, yoyo: true, repeat: 1 });
+      const locationQuery = document.getElementById('locationQuery').value.trim();
+      if (!locationQuery) {
+        alert('Please enter a location.');
+        return;
+      }
+      try {
+        const location = await geocodeLocation(locationQuery);
+        const weatherData = await fetchWeather(location.lat, location.lon);
+        renderWeather(weatherData);
+      } catch (error) {
+        weatherContainer.innerHTML = `<p>${error.message}</p>`;
+      }
+    });
+  </script>
+</body>
+</html>
